@@ -1,0 +1,5 @@
+streamlit==0.56.0
+pandas==1.0.3
+symfit==0.5.2
+matplotlib==3.1.1
+numpy==1.17.2

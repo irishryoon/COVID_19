@@ -12,10 +12,8 @@ import streamlit as st
 import pickle
 import pandas as pd
 import numpy as np
-import regex as re
 from collections import OrderedDict
 import datetime
-from urllib.error import HTTPError
 import matplotlib.pyplot as plt 
 from matplotlib import style
 plt.style.use('ggplot')
