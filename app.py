@@ -128,7 +128,7 @@ def check_data_sufficiency(state_df):
   return sufficient, first_day, last_day 
 
 
-def get_susceptible(state):
+def get_susceptible(state, confirmed):
     state_population = US_dem[US_dem["GEO"] == state_name]["age999"].values[0]
 
     #st.sidebar.markdown("Select percentage of population that will eventually contract COVID-19")
@@ -136,8 +136,11 @@ def get_susceptible(state):
                              min_value = 0.0,
                              max_value = 5.0,
                              step = 0.01)
-    n_susceptible = S_percentage * state_population * 0.01                         
-    st.write( "*", S_percentage, '% of population are susceptible.  \n * Population of ', state_name, " is ", int(state_population), '  \n * Number of susceptible population in ', state_name, " is ", int(n_susceptible) )
+    n_susceptible = S_percentage * state_population * 0.01       
+    if n_susceptible < confirmed:
+        st.sidebar.write("ERROR: Number of susceptible population must be greater than the number of confirmed cases. Please select a higher percentage.")
+    else:                  
+        st.write( "*", S_percentage, '% of population are susceptible.  \n * Population of ', state_name, " is ", int(state_population), '  \n * Number of susceptible population in ', state_name, " is ", int(n_susceptible) )
 
     return n_susceptible 
 
@@ -652,7 +655,7 @@ if state_name != "Select state":
 
 st.markdown("### Susceptible population")
 if state_name != "Select state":
-    n_susceptible = get_susceptible(state)
+    n_susceptible = get_susceptible(state, confirmed)
 
 st.markdown("### Prediction ")
 if state_name != "Select state":
