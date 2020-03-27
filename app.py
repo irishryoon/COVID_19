@@ -572,7 +572,8 @@ st.sidebar.markdown("### User input")
 #------------------------- description ------------------------------- 
 st.header("What does this app do?" )
 st.markdown("This app predicts the following in each state :  \n * number of people that will be infected with COVID-19   \n * dates during which hospitals will experience bed shortage")
-st.markdown("The app uses COVID-19 data from the Johns Hopkins CSSE repository to fit a SIR model. The app uses state demographics to predict the number of COVID-19 patients that will require hospital and ICU beds. Finally, the app uses state-wide hospital capacity information to predict the dates of bed shortage.")
+st.markdown("The app uses COVID-19 data from the [Johns Hopkins CSSE repository](https://github.com/CSSEGISandData/COVID-19) to fit a SIR model. The app uses state demographics and hospital capacity to predict the number of COVID-19 patients that will require hospital and ICU beds. ")
+st.markdown("For details on the model, please read this [medium post.](https://medium.com/@irishryoon/predicting-hospital-bed-shortage-in-the-us-due-to-covid-19-2d860ecdaba2) ")
 
 # ------------------------------ select state ------------------------------
 st.header("Predict number of infected people")
