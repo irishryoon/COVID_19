@@ -650,9 +650,8 @@ if state_name != "Select state":
         bed_percentage = st.sidebar.slider("Select percentage of hospital beds that are available. (As a reference, about 35% of hospital beds are available in the US)")
 #st.write( bed_percentage, '% of hospital beds are available.')
 
-
-        st.markdown("### Hospital information")
         if bed_percentage != 0:
+            st.markdown("### Hospital information")
             # get state demographics
             state_dem = US_dem[US_dem["GEO"] == state_name]
         
