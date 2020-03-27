@@ -651,37 +651,37 @@ if state_name != "Select state":
 #st.write( bed_percentage, '% of hospital beds are available.')
 
 
-    st.markdown("### Hospital information")
-    if bed_percentage != 0:
-        # get state demographics
-        state_dem = US_dem[US_dem["GEO"] == state_name]
-    
-        # predict hospitalization and ICU admission
-        hos_prediction = predict_hospitalization_ICU(state_dem, P)
-    
-        # compare to state-wide hospital capacity
-        state_beds = int(US_hospitals[US_hospitals["State"].str.contains(state)]["StaffedBeds"].values[0])
-    
-    
-        beds_available = state_beds * bed_percentage * 0.01
-        st.write('*', bed_percentage, '% of hospital beds are available.  \n * Total number of hospital beds in ' + str(state_name) + " is ", state_beds, "  \n * Number of available beds in ", state_name, " is ", int(beds_available))
-      
-    
-        st.markdown("### Prediction")
-
-        hospital_prediction(hos_prediction, beds_available, state_name)
+        st.markdown("### Hospital information")
+        if bed_percentage != 0:
+            # get state demographics
+            state_dem = US_dem[US_dem["GEO"] == state_name]
         
-        fig, ax = plt.subplots(ncols = 2, figsize = (15, 5))
-        fig.subplots_adjust(bottom = 0.27)
+            # predict hospitalization and ICU admission
+            hos_prediction = predict_hospitalization_ICU(state_dem, P)
+        
+            # compare to state-wide hospital capacity
+            state_beds = int(US_hospitals[US_hospitals["State"].str.contains(state)]["StaffedBeds"].values[0])
+        
+        
+            beds_available = state_beds * bed_percentage * 0.01
+            st.write('*', bed_percentage, '% of hospital beds are available.  \n * Total number of hospital beds in ' + str(state_name) + " is ", state_beds, "  \n * Number of available beds in ", state_name, " is ", int(beds_available))
+          
+        
+            st.markdown("### Prediction")
     
-        plot_hospital_pred(ax[0], P, hos_prediction, beds_available, 'hospital bed prediction in ' + str(state) +' for 100 days')
-        plot_hospital_pred(ax[1], P, hos_prediction, beds_available, 'hospital bed prediction in ' + str(state) + ' for immediate future')
+            hospital_prediction(hos_prediction, beds_available, state_name)
+            
+            fig, ax = plt.subplots(ncols = 2, figsize = (15, 5))
+            fig.subplots_adjust(bottom = 0.27)
         
-        ax[1].set_xlim(0, 50)
-        ax[1].set_ylim(0,beds_available * 1.1)
-        ax.flatten()[1].legend(loc='upper center', bbox_to_anchor=(-0.1, -0.12), ncol=2)
-        st.pyplot()
-        
+            plot_hospital_pred(ax[0], P, hos_prediction, beds_available, 'hospital bed prediction in ' + str(state) +' for 100 days')
+            plot_hospital_pred(ax[1], P, hos_prediction, beds_available, 'hospital bed prediction in ' + str(state) + ' for immediate future')
+            
+            ax[1].set_xlim(0, 50)
+            ax[1].set_ylim(0,beds_available * 1.1)
+            ax.flatten()[1].legend(loc='upper center', bbox_to_anchor=(-0.1, -0.12), ncol=2)
+            st.pyplot()
+            
 
 # add my info
 st.sidebar.markdown("### About")
