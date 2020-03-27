@@ -24,6 +24,7 @@ from symfit import Parameter, variables, Fit, D, ODEModel
 
 # =============================== FUNCTIONS =============================== 
 
+@st.cache
 def get_state_df(data, state, state_name):
   # create dataframe for selected state
   """
@@ -69,8 +70,8 @@ def get_state_df(data, state, state_name):
   state_df["report date"] = state_data.groupby(["report date"])["Confirmed"].sum().keys()
   
   # Simulate the number of recovered people on each day
-  # adjust "Confirmed" to keep track of actively ill people on given day. 
-  # "Infected" is the number  of people that are ill on any given day. 
+  # And adjust "Confirmed" to report only the number of active cases
+  # "Infected" is the number of active cases
   n_days = len(state_df["Confirmed"])
   # remove number of deaths from confirmed cases 
   infected = [state_df["Confirmed"][0] - state_df["Deaths"][0]]
@@ -137,8 +138,9 @@ def get_susceptible(state, confirmed):
                              max_value = 5.0,
                              step = 0.01)
     n_susceptible = S_percentage * state_population * 0.01       
-    if n_susceptible < confirmed:
-        st.sidebar.write("ERROR: Number of susceptible population must be greater than the number of confirmed cases. Please select a higher percentage.")
+    if (n_susceptible < confirmed) & (n_susceptible != 0) :
+        st.sidebar.error('ERROR: Number of susceptible population must be greater than the number of confirmed cases. Please select a higher percentage.')
+
     else:                  
         st.write( "*", S_percentage, '% of population are susceptible.  \n * Population of ', state_name, " is ", int(state_population), '  \n * Number of susceptible population in ', state_name, " is ", int(n_susceptible) )
 
@@ -159,9 +161,8 @@ def fit_model(state, state_df, first_day, last_day, n_susceptible, n_days):
             NOTE: only data from "first_day" to "last_day" will be used in the parameter tuning process
    n_susceptible: (int) number of susceptible population 
    n_days: (int) number of days to make predictions. 
-                  day 0 coincides with the "first_day" 
    --- output ---
-   prediction: (dict) of prediction data
+   prediction: (dict) of prediction info
    """
     
    ### get data in correct format
@@ -174,42 +175,39 @@ def fit_model(state, state_df, first_day, last_day, n_susceptible, n_days):
    data_R = np.array(state_df.loc[first_day_idx:last_day_idx, "death_or_recovered"])
    data_S = [n_susceptible - x - data_R[idx] for idx, x in enumerate(data_I)]
 
-   ### define variables and parameter for ODE model
+   ### define variables 
    S, I, R, t = variables('S, I, R, t')
 
    ### find sensible initial parameter values
    dIdt = np.diff(data_I)
-   dRdt = np.diff(data_R)
    gamma_0 = 0.02
-   #gamma_0 = np.mean([x/infected_adjusted [idx] for idx, x in enumerate(dRdt)])
    beta_0 = np.mean([(x + gamma_0 * data_I[idx] ) * n_susceptible / (data_S[idx] * data_I[idx]) for idx, x in enumerate(dIdt)])
-
+   
+   ### define parameters
    beta = Parameter('beta', beta_0)
-   #gamma = Parameter('gamma', gamma_0)
    gamma = Parameter("gamma", gamma_0)
 
    ### define ODE equations 
    model_dict = {
        D(S, t): - beta * S * I / n_susceptible,
        D(I, t): beta * S* I / n_susceptible - gamma * I,
-       D(R, t): gamma * I
-   }
+       D(R, t): gamma * I}
 
-   ### initial values
+   ### set initial values
    I0 = data_I[0]
    S0 = n_susceptible - I0
    R0 = data_R[0]
 
    ### define the model
-   model = ODEModel(model_dict, initial = { t : 0, S: S0, I: I0, R: R0})
+   model = ODEModel(model_dict, initial = { t : 0, S : S0, I : I0, R : R0 })
 
    ### fit model parameters
-   #fit = Fit(model, t = data_time, I = data_infected, S = None, R = data_recovered)
    fit = Fit(model, t = data_time, I = data_I, S = None, R = data_R )
    fit_result = fit.execute()
 
    ### make sure the parameters make sense
-   # if the parameters don't make sense (<=0), just use the naive guess above
+   # Ocassionaly (when there isn't enough data), parameters may be non-positive.
+   # If this is the case, use the naive guess from data
    params = fit_result.params
    if params["beta"] <= 0 or params["gamma"] <=0 :
      params = OrderedDict()
@@ -241,11 +239,7 @@ def fit_model(state, state_df, first_day, last_day, n_susceptible, n_days):
    return prediction
 
 def predict_by_age(age_statistic, age_prediction, column_prefix):
-
-  # Given a prediction of number of infected people by age group
-  # and statistic on hospital admission and ICU admission by age group,
-  # predict the number of hospital admission and ICU admission 
-
+  # predict the number of hospitalization and ICU admission in each age group. 
   """
   --- input ---
   age_statistic: (array) of statistic on either
@@ -253,7 +247,6 @@ def predict_by_age(age_statistic, age_prediction, column_prefix):
               (2) ICU admission among infected people by age group
   age_prediction: (DataFrame) prediction of number of infected people by age group
                   Must have the columns ["0-19","20-44","45-54","55-64","65-74","75-84","85+"]
-  
   column_prefix: (str) prefix to column
 
   --- output ---
@@ -275,8 +268,9 @@ def predict_by_age(age_statistic, age_prediction, column_prefix):
 
   return df
 
+@st.cache
 def predict_hospitalization_ICU(region_dem, P):
-
+  # Predict hospitalization and ICU admissiion, save to dataframe
   """
   --- input ---
   region_dem: (DataFrame) of demographic information of particular state or county.
@@ -285,13 +279,10 @@ def predict_hospitalization_ICU(region_dem, P):
   P: (dict) prediction outcome of function "train_model".
             Must have the key "infected_pred" and "num_days"
 
-
-
   --- output ---
   P_age: (dict) prediction of number of hospital and ICU admissions 
 
   """
-
 
   ### Statistic for hospital admission by age group ###
   # 0. data from CDC: https://www.cdc.gov/mmwr/volumes/69/wr/mm6912e2.htm?s_cid=mm6912e2_w#T1_down
@@ -333,7 +324,7 @@ def predict_hospitalization_ICU(region_dem, P):
 
   return P_age
 
-def hospital_info(hos_prediction, n_beds, region):
+def hospital_prediction(hos_prediction, n_beds, region):
 # predict when the hospital will run out of beds and how many extra beds hospitals need
   """
   --- input ---
@@ -358,20 +349,20 @@ def hospital_info(hos_prediction, n_beds, region):
     last_day = over["date"].values[-1]
 
     if last_day < last_prediction_day:
-      st.write("* According to a conservative estimate, hospitals in ", region, " will need more beds from ", 
+      print("According to a conservative estimate, hospitals in ", region, " will need more beds from ", 
           min_day, " to ", last_day)
     else:
-      st.write("* According to a conservative estimate, hospitals in ", region, " will need more beds from ", 
+      print("According to a conservative estimate, hospitals in ", region, " will need more beds from ", 
           min_day, " to ", last_day," and beyond.")
   
     min_beds = int(hos_prediction.at[min_peak_idx, "hos_min_total"] - n_beds)
-    st.write("* According to a conservative estimate, hospitals in ", region, " will need " + str(min_beds) + 
-      " extra beds at its peak on " + min_peak)
+    print("According to a conservative estimate, hospitals in ", region, " will experience the highest level of bed shortage on " 
+          + min_peak + ", and they will need " + str(min_beds) + " extra beds.")
 
   if over.empty == True:
     min_beds = int(hos_prediction.at[min_peak_idx, "hos_min_total"])
-    st.write("* According to a conservative estimate, hospitals in ", region, " will need " + str(min_beds) +
-          " beds dedicated to COVID-19 patients at its peak on " + min_peak)
+    print("According to a conservative estimate, hospitals in ", region, " will see the highest number of COVID-19 patients on " 
+          + min_peak + ", and they will need " +str(min_beds) + " beds dedicated to COVID-19 patients.")
 
   # Liberal estimate
   over = hos_prediction[hos_prediction["hos_max_total"] > n_beds]
@@ -382,29 +373,28 @@ def hospital_info(hos_prediction, n_beds, region):
     last_day = over["date"].values[-1]
     
     if last_day < last_prediction_day:
-      st.write("* According to a liberal estimate, hospitals in ", region, " will need more beds from ", 
+      print("According to a liberal estimate, hospitals in ", region, " will need more beds from ", 
           max_day, " to ", last_day)
     else:
-      st.write("* According to a liberal estimate, hospitals in ", region, " will need more beds from ", 
+      print("According to a liberal estimate, hospitals in ", region, " will need more beds from ", 
           max_day, " to ", last_day, " and beyond.")
 
-
     max_beds = int(hos_prediction.at[max_peak_idx, "hos_max_total"] - n_beds)
-    st.write("* According to a liberal estimate, hospitals in ", region, " will need " + str(max_beds) + 
-        " extra beds at its peak on " + min_peak)
+    print("According to a liberal estimate, hospitals in ", region, " will experience the highest level of bed shortage on " 
+          + max_peak + ", and they will need " + str(max_beds) + " extra beds.")
 
   if over.empty == True:
     max_beds = int(hos_prediction.at[max_peak_idx, "hos_max_total"])
-    st.write("* According to a conservative estimate, hospitals in ", region, " will need " + str(max_beds) +
-          " beds dedicated to COVID-19 patients at its peak on " + max_peak)
+    print("According to a liberal estimate, hospitals in ", region, " will see the highest number of COVID-19 patients on " 
+          + max_peak + ", and they will need " +str(max_beds) + " beds dedicated to COVID-19 patients.")
 
 def plot_pred(ax, P, data_df, plot_title):
   # plot the prediction 
   """
   --- input ---
   ax: plot object
-  P: (dict) output from function "train_model"
-  data_df: (DataFrame) of COVID-data. 
+  P: (dict) output from function "fit_model"
+  data_df: (DataFrame) of COVID-data for selected region (country / state / county )
           Must have columns "Infected", "Deaths", "Recovered", "Recovered_sim", "report date"
           There must be one row for each "report date"  
   plot_title: (str) title of string  
@@ -424,7 +414,7 @@ def plot_pred(ax, P, data_df, plot_title):
   
   # plot predictions
   ax.plot(tvec, P["infected_pred"], label='prediction: infected', c = '#F95858' ) 
-  ax.plot(tvec, P["recovered_pred"], label='prediction: dead or recovered ', c = '#6288E2') 
+  ax.plot(tvec, P["recovered_pred"], label='prediction: deceased or recovered ', c = '#6288E2') 
 
   # plot data
   data_df = data_df[(data_df["report date"] >= first_day) & (data_df["report date"] <= last_day)]
@@ -437,7 +427,7 @@ def plot_pred(ax, P, data_df, plot_title):
   ax.scatter(range(0, data_duration), 
              data_df["death_or_recovered"].values, 
              marker = 'o', 
-             label = 'data: death or recovered', 
+             label = 'data: deceased or recovered', 
              c = '#244798')
 
   # set labels
@@ -450,58 +440,35 @@ def plot_pred(ax, P, data_df, plot_title):
 
   return ax
 
-def plot_hospital_capacity(ax, P, data_df, pred_infected, hospital_capacity, plot_title, scatter = True):
-
+def plot_hospital_pred(ax, P, pred_infected, hospital_capacity, plot_title):
+  # plot predictions of hospitalization and ICU admission
   """
   --- input --- 
   ax: plot object
-  P: (dict) output of function "train_model"
-  data_df: (DataFrame) of COVID-data. 
-          Must have columns "Infected" and "report date"
-          There must be one row for each "report date"  
-  infected: (series) data of infected people 
+  P: (dict) output of function "fit_model"
   pred_infected: dataframe with columns ["total", "total_hos_min", "total_hos_max", "total_ICU_min", "total_ICU_max"]
   hospital_capacity: (int) number of hospital beds available.  
-  title: (str) 
+  plot_title: (str) title of plot 
   """
-  first_day = P["first_day"]
+  first_dt = datetime.datetime.strptime(P["first_day"], "%m-%d-%Y")
   n_days = pred_infected.shape[0]
 
   t = list(range(0, n_days))
-
-  #ax.plot(t, pred_infected["total"], label = 'prediction: infected', c = '#F95858')
   ax.plot(t, pred_infected["hos_max_total"], label = 'liberal prediction: hospital beds', c = '#293EC9')
   ax.plot(t, pred_infected["hos_min_total"], label = 'conservative prediction: hospital beds', c = '#1FCED4')
-  
   ax.plot(t, pred_infected["ICU_max_total"], label = 'liberal prediction: ICU beds', c= "#119202")
   ax.plot(t, pred_infected["ICU_min_total"], label ='conservative prediction: ICU beds', c = "#EBC400")
+  ax.hlines(hospital_capacity, t[0], t[-1], label = "available hospital beds", color = '#F95858')
 
-  ax.hlines(hospital_capacity, t[0], t[-1], label = "hospital capacity")
-
-
-  # plot data
-  first_day = P["first_day"]
-  last_day = P["last_day"]
-  first_dt = datetime.datetime.strptime(P["first_day"], "%m-%d-%Y")
-  last_dt = datetime.datetime.strptime(P["last_day"], "%m-%d-%Y")
-  data_duration = (last_dt - first_dt).days + 1 
-
-  data_df = data_df[(data_df["report date"] >= first_day) & (data_df["report date"] <= last_day)]
-  if scatter == True:
-    ax.scatter(range(0, data_duration), data_df["Infected"].values, marker = 'o', 
-              label = 'data:infected', c = '#920808')
-  
-  # 
+  # label
   time_label = [(first_dt + datetime.timedelta(days = i)).date().strftime('%m-%d') for i in range(0,n_days,20)]
   ax.set_xticks(list(range(0,n_days,20))) 
   ax.set_xticklabels(time_label )
   ax.set_xlabel("date")
   ax.set_ylabel("number of beds")
-  #ax.legend(loc = 'upper right')
   ax.set_title(plot_title)
 
   return ax
-
 
 # =============================== LOAD DATA =============================== 
 
@@ -514,7 +481,7 @@ def plot_hospital_capacity(ax, P, data_df, pred_infected, hospital_capacity, plo
 
 @st.cache
 def load_COVID_data():
-    data = pickle.load( open( "data/COVID_data_03_23.pkl", "rb" ) )
+    data = pickle.load( open( "data/COVID_data_03_26.pkl", "rb" ) )
     return data
 
 @st.cache
@@ -609,7 +576,7 @@ st.markdown("The app uses COVID-19 data from the Johns Hopkins CSSE repository t
 
 # ------------------------------ select state ------------------------------
 st.header("Predict number of infected people")
-st.markdown("### State information")
+
 # Select state
 
 state_name = st.sidebar.selectbox("Select state", 
@@ -625,14 +592,12 @@ state_name = st.sidebar.selectbox("Select state",
 
 
 # once a state is selected, return state name and its population
+data = load_COVID_data()
 US_dem = load_demographic()
+US_hospitals = load_hospitals()
 
 if state_name != "Select state":
-    # ------------------------------ get data ---------------------------------- 
-    data = load_COVID_data()
-    US_dem = load_demographic()
-    US_hospitals = load_hospitals()  
-
+    st.markdown("### State information")
     state = abbrev[state_name]
     # get state info
     state_df = get_state_df(data, state, state_name)
@@ -653,17 +618,14 @@ if state_name != "Select state":
 #st.markdown("### Select susceptible population")    
 #st.write( " * Select percentage of population that will eventually contract COVID-19.  \n * As a reference, about 0.12% of the population tested positive in Hubei, China. ")
 
-st.markdown("### Susceptible population")
-if state_name != "Select state":
+    st.markdown("### Susceptible population")
     n_susceptible = get_susceptible(state, confirmed)
 
-st.markdown("### Prediction ")
-if state_name != "Select state":
+    st.markdown("### Prediction ")
     if n_susceptible != 0:
 
         P = fit_model(state, state_df, first_day, last_day, n_susceptible, 100)
         
-
         # plot
         fig, ax = plt.subplots(ncols = 2, figsize = (15,5))
         fig.subplots_adjust(bottom = 0.2)
@@ -671,7 +633,7 @@ if state_name != "Select state":
     
         # zoom in on first 30 days
         plot_pred(ax[1], P, state_df, "Infection prediction in " + str(state) + " for immediate future")
-        ax[1].set_xlim(0, 30)
+        ax[1].set_xlim(0, 50)
         ax[1].set_ylim(0,state_df.tail(1)["Infected"].values[0] * 1.5)
         ax.flatten()[1].legend(loc='upper center', bbox_to_anchor=(-0.1, -0.12), ncol=2, borderaxespad=0.)
         st.pyplot()
@@ -689,36 +651,36 @@ if state_name != "Select state":
 #st.write( bed_percentage, '% of hospital beds are available.')
 
 
-st.markdown("### Hospital information")
-if (state_name != "Select state") and (n_susceptible != 0) and (bed_percentage != 0):
-    # get state demographics
-    state_dem = US_dem[US_dem["GEO"] == state_name]
-
-    # predict hospitalization and ICU admission
-    hos_prediction = predict_hospitalization_ICU(state_dem, P)
-
-    # compare to state-wide hospital capacity
-    state_beds = int(US_hospitals[US_hospitals["State"].str.contains(state)]["StaffedBeds"].values[0])
-
-
-    beds_available = state_beds * bed_percentage * 0.01
-    st.write('*', bed_percentage, '% of hospital beds are available.  \n * Total number of hospital beds in ' + str(state_name) + " is ", state_beds, "  \n * Number of available beds in ", state_name, " is ", int(beds_available))
-  
+    st.markdown("### Hospital information")
+    if bed_percentage != 0:
+        # get state demographics
+        state_dem = US_dem[US_dem["GEO"] == state_name]
     
-st.markdown("### Prediction")
-if (state_name != "Select state") and (n_susceptible != 0) and (bed_percentage != 0):
-    hospital_info(hos_prediction, beds_available, state_name)
+        # predict hospitalization and ICU admission
+        hos_prediction = predict_hospitalization_ICU(state_dem, P)
     
-    fig, ax = plt.subplots(ncols = 2, figsize = (15, 5))
-    fig.subplots_adjust(bottom = 0.27)
+        # compare to state-wide hospital capacity
+        state_beds = int(US_hospitals[US_hospitals["State"].str.contains(state)]["StaffedBeds"].values[0])
+    
+    
+        beds_available = state_beds * bed_percentage * 0.01
+        st.write('*', bed_percentage, '% of hospital beds are available.  \n * Total number of hospital beds in ' + str(state_name) + " is ", state_beds, "  \n * Number of available beds in ", state_name, " is ", int(beds_available))
+      
+    
+        st.markdown("### Prediction")
 
-    plot_hospital_capacity(ax[0], P, state_df, hos_prediction, beds_available, 'hospital bed prediction in ' + str(state) +' for 100 days', scatter = False)
-    plot_hospital_capacity(ax[1], P, state_df, hos_prediction, beds_available, 'hospital bed prediction in ' + str(state) + ' for immediate future', scatter = False)
+        hospital_prediction(hos_prediction, beds_available, state_name)
+        
+        fig, ax = plt.subplots(ncols = 2, figsize = (15, 5))
+        fig.subplots_adjust(bottom = 0.27)
     
-    ax[1].set_xlim(0, 50)
-    ax[1].set_ylim(0,beds_available * 1.1)
-    ax.flatten()[1].legend(loc='upper center', bbox_to_anchor=(-0.1, -0.12), ncol=2)
-    st.pyplot()
+        plot_hospital_pred(ax[0], P, hos_prediction, beds_available, 'hospital bed prediction in ' + str(state) +' for 100 days')
+        plot_hospital_pred(ax[1], P, hos_prediction, beds_available, 'hospital bed prediction in ' + str(state) + ' for immediate future')
+        
+        ax[1].set_xlim(0, 50)
+        ax[1].set_ylim(0,beds_available * 1.1)
+        ax.flatten()[1].legend(loc='upper center', bbox_to_anchor=(-0.1, -0.12), ncol=2)
+        st.pyplot()
         
 
 # add my info
